@@ -26,7 +26,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "keypad.h"   /* lab keypad driver, unchanged */
+#include "keypad.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -47,7 +47,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-/* Created in freertos.c. The EXTI callback below gives it to pirTask. */
 extern osSemaphoreId_t pirSemHandle;
 /* USER CODE END PV */
 
@@ -96,23 +95,12 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  /* Keypad pins come from CubeMX (PC0-PC3 outputs, PC4-PC7 inputs pull-down).
-     The lab Keypad_Init only sets the rows low. */
   Keypad_Init();
-
-  /* Buzzer off */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_4, GPIO_PIN_RESET);
-
-  /* Start the three RGB PWM channels (PA8, PA9, PA10), all off */
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 0);
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_2, 0);
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 0);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-
-  /* The LCD is initialised by lcdTask (the only task that uses I2C). */
-  /* USER CODE END 2 */
+/* USER CODE END 2 */
 
   /* Init scheduler */
   osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
@@ -184,13 +172,11 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-/* PIR interrupt (PA6 / EXTI6, both edges). Keep it short: just give the semaphore.
-   pirTask then checks the pin level and confirms the motion. */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-  if (GPIO_Pin == GPIO_PIN_6 && pirSemHandle != NULL)
+  if (GPIO_Pin == GPIO_PIN_6)
   {
-    osSemaphoreRelease(pirSemHandle);   /* ISR-safe; wakes pirTask */
+    osSemaphoreRelease(pirSemHandle);
   }
 }
 /* USER CODE END 4 */
