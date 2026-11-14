@@ -26,10 +26,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
-#include "i2c.h"
 #include "tim.h"
-#include "lcd_i2c.h"
-#include "keypad.h"
+#include "lcd_i2c.h"   /* lab LCD driver, unchanged */
+#include "keypad.h"    /* lab keypad driver, unchanged */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,11 +49,19 @@ typedef enum { STATE_DISARMED, STATE_ARMED, STATE_ALARM } SystemState_t;
 #define EVT_MOTION      0x100U   /* keys are 0x00-0xFF, so this cannot clash */
 #define LED_ON          999U     /* full duty (TIM1 period = 999) */
 
-/* PIR on PA6 (D12). PA5 is not used because the board LED LD2 is on it. */
+/* PIR on PA6 (D12) with EXTI6, both edges, pull-up.
+ * PIR_ACTIVE is the pin level that means "motion":
+ *   GPIO_PIN_SET   -> output goes HIGH on motion (HC-SR501 type)
+ *   GPIO_PIN_RESET -> output goes LOW on motion (AL / active-low type)
+ * If the system beeps right after arming, or stays on "Stay still", this is wrong. */
 #define PIR_PORT        GPIOA
 #define PIR_PIN         GPIO_PIN_6
-#define PIR_ACTIVE      GPIO_PIN_SET   /* HC-SR501: HIGH = motion. Active-low PIR: GPIO_PIN_RESET */
-#define PIR_CONFIRM_MS  200U           /* motion must last this long to count */
+#define PIR_ACTIVE      GPIO_PIN_RESET
+#define PIR_CONFIRM_MS  200U     /* motion must last this long to count */
+
+/* 1 = LD2 (PA5, set as GPIO output in CubeMX) copies the PIR pin level for testing.
+ * Set to 0 when the PIR works. */
+#define PIR_DEBUG       1
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -135,6 +142,7 @@ const osSemaphoreAttr_t pirSem_attributes = {
 static void SetLed(uint16_t r, uint16_t g, uint16_t b);
 static void SetBuzzer(uint8_t on);
 static void ShowLcd(const char *l1, const char *l2);
+static void LcdWriteRow(uint8_t row, const char *text);
 static void ShowCodeEntry(const char *title);
 static void ShowExitCountdown(uint32_t secs);
 static void ClearEntry(void);
@@ -234,8 +242,8 @@ void MX_FREERTOS_Init(void) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
-  /* Not used. Delete defaultTask in the .ioc file when you can. */
-  osThreadExit();
+  (void)argument;
+  osThreadExit();   /* not used */
   /* USER CODE END StartDefaultTask */
 }
 
@@ -249,6 +257,7 @@ void StartDefaultTask(void *argument)
 void stateTaskFunction(void *argument)
 {
   /* USER CODE BEGIN stateTaskFunction */
+  (void)argument;
   uint32_t ev;
 
   tickFreq  = osKernelGetTickFreq();
@@ -259,6 +268,9 @@ void stateTaskFunction(void *argument)
   /* Infinite loop */
   for(;;)
   {
+#if PIR_DEBUG
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, HAL_GPIO_ReadPin(PIR_PORT, PIR_PIN));
+#endif
     /* Wake on an event, or every 200 ms to update the exit countdown */
     if (osMessageQueueGet(eventQueueHandle, &ev, NULL, 200U) == osOK)
     {
@@ -280,27 +292,19 @@ void stateTaskFunction(void *argument)
 void keypadTaskFunction(void *argument)
 {
   /* USER CODE BEGIN keypadTaskFunction */
-  char prev = 0;     /* reading from the previous scan */
-  char stable = 0;   /* last debounced key state */
+  (void)argument;
 
   /* Infinite loop */
   for(;;)
   {
+    /* Lab Keypad_Scan debounces and waits for release, so it returns
+     * one key per press (or 0 if nothing is pressed). */
     char k = Keypad_Scan();
-
-    /* Debounce: accept a change only if two scans in a row agree.
-     * Send the key once on press (not while held, not on release). */
-    if (k == prev && k != stable)
+    if (k != 0)
     {
-      stable = k;
-      if (k != 0)
-      {
-        uint32_t ev = (uint32_t)(uint8_t)k;
-        osMessageQueuePut(eventQueueHandle, &ev, 0U, 0U);
-      }
+      uint32_t ev = (uint32_t)(uint8_t)k;
+      osMessageQueuePut(eventQueueHandle, &ev, 0U, 0U);
     }
-    prev = k;
-
     osDelay(20);
   }
   /* USER CODE END keypadTaskFunction */
@@ -316,6 +320,7 @@ void keypadTaskFunction(void *argument)
 void lcdTaskFunction(void *argument)
 {
   /* USER CODE BEGIN lcdTaskFunction */
+  (void)argument;
   LCD_Msg_t m;
 
   LCD_Init();   /* lcdTask is the only task that uses I2C */
@@ -325,8 +330,8 @@ void lcdTaskFunction(void *argument)
   {
     if (osMessageQueueGet(lcdQueueHandle, &m, NULL, osWaitForever) == osOK)
     {
-      LCD_PrintLine(0, m.line1);   /* each row is rewritten in full */
-      LCD_PrintLine(1, m.line2);
+      LcdWriteRow(0, m.line1);
+      LcdWriteRow(1, m.line2);
     }
   }
   /* USER CODE END lcdTaskFunction */
@@ -342,6 +347,7 @@ void lcdTaskFunction(void *argument)
 void pirTaskFunction(void *argument)
 {
   /* USER CODE BEGIN pirTaskFunction */
+  (void)argument;
   uint32_t ev = EVT_MOTION;
 
   /* The semaphore starts with one token. Take it so we wait for a real interrupt. */
@@ -350,7 +356,7 @@ void pirTaskFunction(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    /* Sleep until the EXTI interrupt (HAL_GPIO_EXTI_Callback in main.c) gives pirSem */
+    /* Sleep until the EXTI6 interrupt (HAL_GPIO_EXTI_Callback in main.c) gives pirSem */
     if (osSemaphoreAcquire(pirSemHandle, osWaitForever) != osOK) continue;
 
     /* Ignore edges while disarmed, during the exit delay, or when the pin
@@ -358,8 +364,8 @@ void pirTaskFunction(void *argument)
     if (!pirEnabled) continue;
     if (HAL_GPIO_ReadPin(PIR_PORT, PIR_PIN) != PIR_ACTIVE) continue;
 
-    /* Confirm: real motion keeps the output active for seconds,
-     * a glitch is gone within microseconds. */
+    /* Confirm: real motion keeps the output active for a while,
+     * a glitch is gone almost at once. */
     osDelay(PIR_CONFIRM_MS);
     if (pirEnabled && HAL_GPIO_ReadPin(PIR_PORT, PIR_PIN) == PIR_ACTIVE)
     {
@@ -392,6 +398,19 @@ static void ShowLcd(const char *l1, const char *l2)
   strncpy(m.line1, l1, 16); m.line1[16] = '\0';
   strncpy(m.line2, l2, 16); m.line2[16] = '\0';
   osMessageQueuePut(lcdQueueHandle, &m, 0U, 20U);
+}
+
+/* Used by lcdTask only. Writes 16 characters (padded with spaces) with the
+ * lab LCD functions, so old text is overwritten without a clear. */
+static void LcdWriteRow(uint8_t row, const char *text)
+{
+  char buf[17];
+  uint8_t i = 0;
+  while (i < 16 && text[i] != '\0') { buf[i] = text[i]; i++; }
+  while (i < 16) buf[i++] = ' ';
+  buf[16] = '\0';
+  LCD_SetCursor(row, 0);
+  LCD_Print(buf);
 }
 
 /* Line 2 shows one '*' per digit typed, e.g. "Code: ***" */
@@ -514,8 +533,16 @@ static void CheckExitDelay(void)
 
   if (elapsed >= exitTicks)
   {
+    osSemaphoreAcquire(pirSemHandle, 0U);  /* drop any old interrupt */
     exitDelayActive = 0;
     pirEnabled = 1;                        /* now motion can trigger the alarm */
+
+    /* Motion is already there when the system gets armed: alarm right away */
+    if (HAL_GPIO_ReadPin(PIR_PORT, PIR_PIN) == PIR_ACTIVE)
+    {
+      EnterAlarm();
+      return;
+    }
     if (entryLen == 0) ShowLcd("SYSTEM ARMED", "Code to disarm");
   }
   else if (entryLen == 0)                  /* do not overwrite the stars */

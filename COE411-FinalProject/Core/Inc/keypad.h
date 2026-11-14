@@ -3,6 +3,9 @@
 
 #include "stm32l4xx_hal.h"
 
+/* Adjust debounce time (ms) */
+#define DEBOUNCE_MS 20
+
 /* Public function prototypes */
 void Keypad_Init(void);
 char Keypad_Scan(void);
