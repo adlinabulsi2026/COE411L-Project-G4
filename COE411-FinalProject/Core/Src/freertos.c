@@ -58,6 +58,7 @@ volatile uint8_t pirEnabled = 0;
 uint8_t state = DISARMED;
 uint8_t arming = 0;
 uint32_t startTime = 0;
+int lastSecs = 10;
 char code[5];
 char stars[5];
 uint8_t count = 0;
@@ -250,10 +251,11 @@ void stateTaskFunction(void *argument)
           state = ARMED;
           arming = 1;
           startTime = HAL_GetTick();
+          lastSecs = 10;
           count = 0;
           stars[0] = '\0';
           SetColor(0, 0, 255);
-          ShowLcd("ARMING...", "Wait 10 seconds");
+          ShowLcd("ARMING...", "Leave in 10s");
         }
       }
       else
@@ -317,6 +319,17 @@ void stateTaskFunction(void *argument)
         StartAlarm();
       }
     }
+    else if (arming && count == 0)
+        {
+          int left = 10 - (HAL_GetTick() - startTime) / 1000;
+          if (left != lastSecs)
+          {
+            lastSecs = left;
+            char line[17];
+            sprintf(line, "Leave in %ds", left);
+            ShowLcd("ARMING...", line);
+          }
+        }
   }
 /* USER CODE END stateTaskFunction */
 }
