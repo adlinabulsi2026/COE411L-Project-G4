@@ -63,7 +63,6 @@ char code[5];
 char stars[5];
 uint8_t count = 0;
 /* USER CODE END Variables */
-
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
@@ -190,7 +189,7 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
-/* USER CODE END RTOS_EVENTS */
+  /* USER CODE END RTOS_EVENTS */
 
 }
 
@@ -208,7 +207,7 @@ void StartDefaultTask(void *argument)
   {
     osDelay(1);
   }
-/* USER CODE END StartDefaultTask */
+  /* USER CODE END StartDefaultTask */
 }
 
 /* USER CODE BEGIN Header_stateTaskFunction */
@@ -314,7 +313,7 @@ void stateTaskFunction(void *argument)
       {
         ShowCode();
       }
-      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_RESET)
+      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_SET)
       {
         StartAlarm();
       }
@@ -331,7 +330,7 @@ void stateTaskFunction(void *argument)
           }
         }
   }
-/* USER CODE END stateTaskFunction */
+  /* USER CODE END stateTaskFunction */
 }
 
 /* USER CODE BEGIN Header_keypadTaskFunction */
@@ -354,7 +353,7 @@ void keypadTaskFunction(void *argument)
     }
     osDelay(20);
   }
-/* USER CODE END keypadTaskFunction */
+  /* USER CODE END keypadTaskFunction */
 }
 
 /* USER CODE BEGIN Header_lcdTaskFunction */
@@ -380,7 +379,7 @@ void lcdTaskFunction(void *argument)
       LCD_Print(m.line2);
     }
   }
-/* USER CODE END lcdTaskFunction */
+  /* USER CODE END lcdTaskFunction */
 }
 
 /* USER CODE BEGIN Header_pirTaskFunction */
@@ -398,13 +397,13 @@ void pirTaskFunction(void *argument)
   {
     if (osSemaphoreAcquire(pirSemHandle, osWaitForever) == osOK)
     {
-      if (pirEnabled && HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_RESET)
+      if (pirEnabled && HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6) == GPIO_PIN_SET)
       {
         osMessageQueuePut(eventQueueHandle, &ev, 0, osWaitForever);
       }
     }
   }
-/* USER CODE END pirTaskFunction */
+  /* USER CODE END pirTaskFunction */
 }
 
 /* Private application code --------------------------------------------------*/
@@ -467,3 +466,4 @@ void Disarm(void)
   ShowLcd("SYSTEM DISARMED", "Press A to arm");
 }
 /* USER CODE END Application */
+
